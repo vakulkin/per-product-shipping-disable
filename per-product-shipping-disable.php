@@ -93,6 +93,8 @@ final class PerProductShippingDisable {
 			add_action( 'woocommerce_shipping_zone_method_added', array( $this, 'clear_shipping_methods_cache' ) );
 			add_action( 'woocommerce_shipping_zone_method_removed', array( $this, 'clear_shipping_methods_cache' ) );
 			add_action( 'woocommerce_shipping_zone_saved', array( $this, 'clear_shipping_methods_cache' ) );
+			// When checkout updates via AJAX, reset WC session shipping cache so rates are recalculated.
+			add_action( 'woocommerce_checkout_update_order_review', array( $this, 'reset_shipping_cache' ) );
 		}
 
 		// Provide a small helper URL to clear cache during dev (admin only).
@@ -365,6 +367,25 @@ final class PerProductShippingDisable {
 	 */
 	public function clear_shipping_methods_cache() {
 		delete_transient( $this->transient_key );
+	}
+
+	/**
+	 * Reset WC session shipping cache for all shipping packages.
+	 *
+	 * Fires on checkout update to force WooCommerce to recalculate rates.
+	 *
+	 * @return void
+	 */
+	public function reset_shipping_cache() {
+		if ( ! function_exists( 'WC' ) || ! WC() || ! WC()->cart || ! WC()->session ) {
+			return;
+		}
+
+		$packages = WC()->cart->get_shipping_packages();
+		foreach ( $packages as $key => $package ) {
+			$session_key = 'shipping_for_package_' . $key;
+			WC()->session->set( $session_key, null );
+		}
 	}
 
 	/**
