@@ -1,0 +1,55 @@
+# .gitignore — WordPress plugin (place at plugin root)
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+
+# Editor/IDE
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.iml
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Composer / PHP
+/vendor/
+/composer.phar
+# Keep composer.lock tracked (recommended)
+
+# PHPUnit / tests / coverage
+.phpunit.result.cache
+phpunit.xml.cache
+/tests/_output/
+coverage/
+coverage.xml
+build/
+dist/
+
+# PHPCS / caches
+.phpcs.cache
+
+# Env / secrets
+.env
+.env.* 
+.env.local
+
+# Logs, temp, caches
+*.log
+*.cache
+tmp/
+cache/
+
+# Git hooks packaged in repo
+.githooks/
+
+# Archives / artifacts
+*.zip
+*.tar.gz
+*.phar
