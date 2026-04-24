@@ -182,89 +182,7 @@ final class PerProductShippingDisable {
 		$choices = get_transient( $this->transient_key );
 
 		if ( false === $choices || ! is_array( $choices ) ) {
-			$choices = array();
-
-			// Get shipping zones from WC. This returns an array of zone arrays with zone_id and zone_name.
-			if ( class_exists( 'WC_Shipping_Zones' ) ) {
-				$zones = WC_Shipping_Zones::get_zones();
-
-				// Build a list that includes the default (zone 0).
-				$zone_names = array();
-				if ( is_array( $zones ) ) {
-					foreach ( $zones as $zone ) {
-						if ( isset( $zone['zone_id'], $zone['zone_name'] ) ) {
-							$zone_names[ absint( $zone['zone_id'] ) ] = $zone['zone_name'];
-						}
-					}
-				}
-				// Default zone (locations not covered by other zones).
-				$zone_names[0] = __( 'Locations not covered by other zones', 'per-product-shipping-disable' );
-
-				// Iterate zones and collect method instances.
-				foreach ( $zone_names as $zone_id => $zone_name ) {
-					try {
-						$zone_obj = new WC_Shipping_Zone( $zone_id );
-						$methods  = $zone_obj->get_shipping_methods( true );
-
-						if ( is_array( $methods ) ) {
-							foreach ( $methods as $method ) {
-								// Determine method id and instance id with robust fallbacks.
-								$method_id   = null;
-								$instance_id = null;
-
-								if ( is_object( $method ) ) {
-									if ( method_exists( $method, 'get_method_id' ) ) {
-										$method_id = $method->get_method_id();
-									} elseif ( isset( $method->id ) ) {
-										$method_id = $method->id;
-									}
-
-									if ( method_exists( $method, 'get_instance_id' ) ) {
-										$instance_id = $method->get_instance_id();
-									} elseif ( isset( $method->instance_id ) ) {
-										$instance_id = $method->instance_id;
-									}
-								}
-
-								if ( empty( $method_id ) ) {
-									continue; // cannot build identifier.
-								}
-
-								// Some shipping methods might not have instance ids — normalize to 0.
-								$instance_id = '' === (string) $instance_id ? 0 : absint( $instance_id );
-
-								// Value stored in ACF must be the actual method identifier used by WC rates.
-								$value = $method_id . ':' . $instance_id;
-
-								// Prefer a human-readable title when available.
-								$title = '';
-								if ( is_object( $method ) ) {
-									if ( method_exists( $method, 'get_title' ) ) {
-										$title = $method->get_title();
-									} elseif ( isset( $method->title ) ) {
-										$title = $method->title;
-									} elseif ( isset( $method->method_title ) ) {
-										$title = $method->method_title;
-									}
-								}
-								if ( empty( $title ) ) {
-									$title = ucwords( str_replace( array( '_', '-' ), ' ', $method_id ) );
-								}
-
-								// Label shows zone + method title.
-								$label = sprintf( '%s — %s', $zone_name, $title );
-
-								// Avoid duplicate keys — last one wins (shouldn't happen often).
-								$choices[ $value ] = $label;
-							}
-						}
-					} catch ( Exception $e ) {
-						// Ignore errors per graceful degradation.
-						continue;
-					}
-				}
-			}
-
+			$choices = $this->build_shipping_choices();
 			// Cache for 6 hours by default.
 			set_transient( $this->transient_key, $choices, 6 * HOUR_IN_SECONDS );
 		}
@@ -272,6 +190,123 @@ final class PerProductShippingDisable {
 		// Assign choices to field (ACF expects value => label array).
 		$field['choices'] = (array) $choices;
 		return $field;
+	}
+
+	/**
+	 * Build the shipping choices array by inspecting WC zones and methods.
+	 *
+	 * @return array Value => label choices.
+	 */
+	private function build_shipping_choices() {
+		$choices = array();
+		if ( ! class_exists( 'WC_Shipping_Zones' ) ) {
+			return $choices;
+		}
+
+		$zones      = WC_Shipping_Zones::get_zones();
+		$zone_names = $this->extract_zone_names( $zones );
+
+		foreach ( $zone_names as $zone_id => $zone_name ) {
+			try {
+				$methods = $this->get_shipping_methods_for_zone( $zone_id );
+				foreach ( $methods as $method ) {
+					$choice = $this->build_choice_from_method( $method, $zone_name );
+					if ( null !== $choice ) {
+						$choices[ $choice['value'] ] = $choice['label'];
+					}
+				}
+			} catch ( Exception $e ) {
+				continue;
+			}
+		}
+
+		return $choices;
+	}
+
+	/**
+	 * Extract zone id => name map from WC_Shipping_Zones::get_zones() result.
+	 *
+	 * @param array|mixed $zones Zones data from WC.
+	 * @return array
+	 */
+	private function extract_zone_names( $zones ) {
+		$zone_names = array();
+		if ( is_array( $zones ) ) {
+			foreach ( $zones as $zone ) {
+				if ( isset( $zone['zone_id'], $zone['zone_name'] ) ) {
+					$zone_names[ absint( $zone['zone_id'] ) ] = $zone['zone_name'];
+				}
+			}
+		}
+		// Default zone (locations not covered by other zones).
+		$zone_names[0] = __( 'Locations not covered by other zones', 'per-product-shipping-disable' );
+		return $zone_names;
+	}
+
+	/**
+	 * Return shipping methods for a zone id.
+	 *
+	 * @param int $zone_id Zone ID.
+	 * @return array
+	 */
+	private function get_shipping_methods_for_zone( $zone_id ) {
+		$zone_obj = new WC_Shipping_Zone( $zone_id );
+		$methods  = $zone_obj->get_shipping_methods( true );
+		return is_array( $methods ) ? $methods : array();
+	}
+
+	/**
+	 * Build a single choice entry from a shipping method object.
+	 *
+	 * @param mixed  $method    Shipping method object/array.
+	 * @param string $zone_name Zone human-readable name.
+	 * @return array|null ['value' => string, 'label' => string] or null when not buildable.
+	 */
+	private function build_choice_from_method( $method, $zone_name ) {
+		$method_id   = null;
+		$instance_id = null;
+
+		if ( is_object( $method ) ) {
+			if ( method_exists( $method, 'get_method_id' ) ) {
+				$method_id = $method->get_method_id();
+			} elseif ( isset( $method->id ) ) {
+				$method_id = $method->id;
+			}
+
+			if ( method_exists( $method, 'get_instance_id' ) ) {
+				$instance_id = $method->get_instance_id();
+			} elseif ( isset( $method->instance_id ) ) {
+				$instance_id = $method->instance_id;
+			}
+		}
+
+		if ( empty( $method_id ) ) {
+			return null;
+		}
+
+		$instance_id = '' === (string) $instance_id ? 0 : absint( $instance_id );
+		$value       = $method_id . ':' . $instance_id;
+
+		// Prefer a human-readable title when available.
+		$title = '';
+		if ( is_object( $method ) ) {
+			if ( method_exists( $method, 'get_title' ) ) {
+				$title = $method->get_title();
+			} elseif ( isset( $method->title ) ) {
+				$title = $method->title;
+			} elseif ( isset( $method->method_title ) ) {
+				$title = $method->method_title;
+			}
+		}
+		if ( empty( $title ) ) {
+			$title = ucwords( str_replace( array( '_', '-' ), ' ', $method_id ) );
+		}
+
+		$label = sprintf( '%s — %s', $zone_name, $title );
+		return array(
+			'value' => $value,
+			'label' => $label,
+		);
 	}
 
 	/**
@@ -297,8 +332,36 @@ final class PerProductShippingDisable {
 		}
 
 		// Collect disabled methods from all products in the cart (union).
-		$disabled_methods = array();
+		$disabled_methods = $this->get_disabled_methods_from_cart();
 
+		// If no disabled methods, leave rates unchanged.
+		if ( empty( $disabled_methods ) ) {
+			return $rates;
+		}
+
+		/**
+		 * Allow other code to modify the list of disabled method identifiers.
+		 * Receives: (array) $disabled_methods, (array) $rates, (array) $package
+		 */
+		$disabled_methods = (array) apply_filters( 'per_product_disabled_shipping_methods', $disabled_methods, $rates, $package );
+
+		// Remove rates which match any disabled method identifier.
+		foreach ( $rates as $rate_id => $rate ) {
+			if ( $this->is_rate_disabled( $rate, $rate_id, $disabled_methods ) ) {
+				unset( $rates[ $rate_id ] );
+			}
+		}
+
+		return $rates;
+	}
+
+	/**
+	 * Collect disabled method identifiers from products in the current cart.
+	 *
+	 * @return array
+	 */
+	private function get_disabled_methods_from_cart() {
+		$disabled_methods = array();
 		foreach ( WC()->cart->get_cart() as $cart_item ) {
 			// Prefer product_id from cart item (works for variations as well).
 			$product_id = isset( $cart_item['product_id'] ) ? absint( $cart_item['product_id'] ) : 0;
@@ -321,43 +384,37 @@ final class PerProductShippingDisable {
 			$disabled_methods = array_merge( $disabled_methods, $values );
 		}
 
-		$disabled_methods = array_unique( array_filter( $disabled_methods ) );
+		return array_unique( array_filter( $disabled_methods ) );
+	}
 
-		// If no disabled methods, leave rates unchanged.
-		if ( empty( $disabled_methods ) ) {
-			return $rates;
-		}
+	/**
+	 * Determine whether a given rate matches any disabled method identifiers.
+	 *
+	 * @param mixed  $rate             WC_Shipping_Rate object or fallback.
+	 * @param string $rate_id          Rate key.
+	 * @param array  $disabled_methods Array of disabled identifiers.
+	 * @return bool
+	 */
+	private function is_rate_disabled( $rate, $rate_id, $disabled_methods ) {
+		if ( is_object( $rate ) ) {
+			$method_id   = ( method_exists( $rate, 'get_method_id' ) ) ? $rate->get_method_id() : ( isset( $rate->method_id ) ? $rate->method_id : null );
+			$instance_id = ( method_exists( $rate, 'get_instance_id' ) ) ? $rate->get_instance_id() : ( isset( $rate->instance_id ) ? $rate->instance_id : null );
 
-		/**
-		 * Allow other code to modify the list of disabled method identifiers.
-		 * Receives: (array) $disabled_methods, (array) $rates, (array) $package
-		 */
-		$disabled_methods = (array) apply_filters( 'per_product_disabled_shipping_methods', $disabled_methods, $rates, $package );
-
-		// Remove rates which match any disabled method identifier.
-		foreach ( $rates as $rate_id => $rate ) {
-			// $rate is a WC_Shipping_Rate object in modern WC.
-			if ( is_object( $rate ) ) {
-				$method_id   = ( method_exists( $rate, 'get_method_id' ) ) ? $rate->get_method_id() : ( isset( $rate->method_id ) ? $rate->method_id : null );
-				$instance_id = ( method_exists( $rate, 'get_instance_id' ) ) ? $rate->get_instance_id() : ( isset( $rate->instance_id ) ? $rate->instance_id : null );
-
-				// Construct identifier to compare against stored values.
-				$constructed_id = null;
-				if ( null !== $method_id && null !== $instance_id ) {
-					$constructed_id = $method_id . ':' . absint( $instance_id );
+			if ( null !== $method_id && null !== $instance_id ) {
+				$constructed_id = $method_id . ':' . absint( $instance_id );
+				if ( in_array( $constructed_id, $disabled_methods, true ) ) {
+					return true;
 				}
-
-				// Compare either by constructed id or the array key $rate_id.
-				if ( ( $constructed_id && in_array( $constructed_id, $disabled_methods, true ) ) || in_array( $rate_id, $disabled_methods, true ) ) {
-					unset( $rates[ $rate_id ] );
-				}
-			} elseif ( in_array( $rate_id, $disabled_methods, true ) ) {
-				// Fallback: rate keyed strings matching disabled methods.
-				unset( $rates[ $rate_id ] );
 			}
+
+			if ( in_array( $rate_id, $disabled_methods, true ) ) {
+				return true;
+			}
+		} elseif ( in_array( $rate_id, $disabled_methods, true ) ) {
+				return true;
 		}
 
-		return $rates;
+		return false;
 	}
 
 	/**
