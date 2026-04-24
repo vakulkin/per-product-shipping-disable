@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<ruleset name="Per-Product Shipping Disable">
+  <description>PHPCS ruleset using WPCS and VIP Coding Standards.</description>
+
+  <!-- Include relevant WordPress standards -->
+  <rule ref="WordPress-Core"/>
+  <rule ref="WordPress-Extra"/>
+  <rule ref="WordPress-Docs"/>
+  <rule ref="WordPressVIPMinimum"/>
+
+  <!-- Main plugin file must keep its WordPress-registered name; class lives inside it. -->
+  <rule ref="WordPress.Files.FileName.InvalidClassFileName">
+    <exclude-pattern>per-product-shipping-disable.php</exclude-pattern>
+  </rule>
+
+  <!-- Exclude vendor and other third-party folders from linting -->
+  <exclude-pattern>vendor/*</exclude-pattern>
+  <exclude-pattern>node_modules/*</exclude-pattern>
+  <exclude-pattern>tests/*</exclude-pattern>
+
+  <!-- Lint the plugin folder -->
+  <file>./</file>
+</ruleset>

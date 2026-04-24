@@ -1,0 +1,19 @@
+{
+  "name": "per-product-shipping-disable/per-product-shipping-disable",
+  "description": "ACF × WooCommerce shipping disabler plugin",
+  "type": "wordpress-plugin",
+  "require-dev": {
+    "squizlabs/php_codesniffer": "^3.11",
+    "wp-coding-standards/wpcs": "^3.1",
+    "automattic/vipwpcs": "^3.0",
+    "dealerdirect/phpcodesniffer-composer-installer": "^0.7"
+  },
+  "scripts": {
+    "phpcs": "phpcs -p --standard=phpcs.xml ./"
+  },
+  "config": {
+    "allow-plugins": {
+      "dealerdirect/phpcodesniffer-composer-installer": true
+    }
+  }
+}
